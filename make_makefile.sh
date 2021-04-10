@@ -50,13 +50,13 @@ else
 fi
 
 # Start of the makefile
-echo -n "# Created by $0 on "  > $mf_name
-date                          >> $mf_name
-echo -e "\n.SUFFICIES:"       >> $mf_name
-echo ".PHONY: all clean"      >> $mf_name
-echo ""                       >> $mf_name
+echo -n "# Created by $0 on "       > $mf_name
+date                               >> $mf_name
+echo -e "\n.SUFFICIES:"            >> $mf_name
+echo ".PHONY: all clean libs"      >> $mf_name
+echo ""                            >> $mf_name
 
-# All source except CLI
+# All source except the main program.
 # For subdirectories the object file is created in this directory
 # rather than the subdirectory itself so we maintain a map to keep
 # track of this.
@@ -66,9 +66,15 @@ declare -A srcfiles
 if [[ $verbose == 1 ]]; then
     echo "Source files found:"
 fi
-for sf in $(find $sdir -type f -name '*.cpp' -print | fgrep -v CLI.cpp); do
+
+for sf in $(find $sdir -type f -name '*.cpp' -print); do
     if [[ $verbose == 1 ]]; then
         echo -e "\t${sf}"
+    fi
+    grep -q '^ *int  *main' $sf
+    if [[ $? == 0 ]]; then
+        mp_src=$sf
+        continue
     fi
     of="${sf%.cpp}.o"
     of=${of##*/}
@@ -87,9 +93,21 @@ echo "CXXOPTS := ${cxxopts[release]}"                                       >> $
 echo "endif"                                                                >> $mf_name
 echo "CXXINCS := $cxxincs"                                                  >> $mf_name
 echo ""                                                                     >> $mf_name
-echo -e "all: CLI\n"                                                        >> $mf_name
-echo "CLI: \$(OBJ) $sdir/CLI.cpp"                                           >> $mf_name
-echo -e "\t $cxx $sdir/CLI.cpp -o CLI \$(OBJ) \$(CXXOPTS) \$(CXXINCS)\n"    >> $mf_name
+
+if [[ ! -z $mp_src ]]; then
+    mainprog=${mp_src##*/}
+    mp_name=${mainprog%.cpp}
+    mp_obj="${mp_name}.o"
+    echo "main program = $mainprog"
+    echo -e "all: libs $mp_name\n"                                          >> $mf_name
+    echo "$mp_name: $mp_src libs"                                           >> $mf_name
+    echo -e "\t $cxx $mp_src -o $mp_name lib${mp_name}.a \$(CXXOPTS) \$(CXXINCS)\n"    >> $mf_name
+else
+    echo -e "all: libs\n"                                                   >> $mf_name
+fi
+echo -e "libs: \$(OBJ)"                                                     >> $mf_name
+echo -e "	ar cr lib${mp_name}.a \$(OBJ)\n"                                >> $mf_name
+
 if [[ $verbose == 1 ]]; then
     echo "Dependencies:"
 fi
