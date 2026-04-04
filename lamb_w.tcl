@@ -504,126 +504,144 @@ namespace eval GUI {
         }
         #monitor ", $niter iterations ; x0 = [format %0.8f $x0]\n"
         #monitor_nl
-        monitor "Rearranging to use the Lambert W-function method:\n"
-        monitor_nl
+        set has_lw 1
         if {$a eq {e}} {
-            monitor "x = $c/$b - W(${a}**(${c}/$b))"
-            set warg [exp "${c}/$b"]
-            monitor_nl
-            monitor "  = $c/$b - W([format %0.8f $warg])\n"
+            if {$d != 1 && $c != 0} {
+                set has_lw 0
+            } else {
+                set warg [expr {exp(double($c)/$b)}]
+            }
         } else {
             if {$c == 0 && $b == -1} {
-                set warg [expr "-log($a)/$d"]
-                monitor "x = - $d*W(-log($a)/$d)/log($a)"
-                monitor_nl
-                monitor "  = - $d*W([format %0.8f $warg])/log($a)\n"
-            } else {
-                monitor "x = $c/$b - W(${a}**(${c})*log($a)/$b)/log($a)"
+                set warg [expr {-log($a)/$d}]
+            } elseif {$d == 1} {
                 set warg [* [** $a $c] [/ [log $a] $b]]
-                monitor_nl
-                monitor "  = $c/$b - W([format %0.8f $warg])/log($a)\n"
+            } else {
+                set has_lw 0
             }
+        }
+        monitor "Rearranging to use the Lambert W-function method:\n"
+        monitor_nl
+        if {$has_lw} {
+            if {$a eq {e}} {
+                monitor "x = $c/$b - W(${a}**(${c}/$b))"
+                monitor_nl
+                monitor "  = $c/$b - W([format %0.8f $warg])\n"
+            } else {
+                if {$c == 0 && $b == -1} {
+                    monitor "x = - $d*W(-log($a)/$d)/log($a)"
+                    monitor_nl
+                    monitor "  = - $d*W([format %0.8f $warg])/log($a)\n"
+                } else {
+                    monitor "x = $c/$b - W(${a}**(${c})*log($a)/$b)/log($a)"
+                    monitor_nl
+                    monitor "  = $c/$b - W([format %0.8f $warg])/log($a)\n"
+                }
+            }
+        } else {
+            monitor "\n[string repeat = 60]\n"
+            monitor "\nNo Lambert W solution for c\u22600 and d>1"
+            monitor_nl
         }
         monitor_nl
         monitor "[string repeat = 60]\n"
         monitor_nl
         trace::mess {==========================================================}
 
-        #stack::push $::v
-        #set ::v 1
-        monitor "To calculate W(u), first solve the basic equation:\n"
-        monitor_nl
-        monitor "u = [format $fmt $warg] ; eps = $e"
-        monitor_nl
-        trace::mess "warg = $warg ; e = $e"
-        set s_value [solver::lambert_w $warg $e]
-        if {[llength $s_value] == 0} {
-            set w_res {No solutions}
-        } else {
-            lassign $s_value s1 s2
-            set w_arg $warg
-            set w_res [format $fmt $s1]
-            trace::mess $w_res
-            if {[llength $s_value] > 1} {
-                append w_res ", [format $fmt $s2]"
-            }
-            if {$warg > 0} {
-                monitor "e**x + x - ln(u) = 0\n"
-                monitor "Let s = x, then W($warg) = log(u) - s = e**s"
+        if {$has_lw} {
+            #stack::push $::v
+            #set ::v 1
+            monitor "To calculate W(u), first solve the basic equation:\n"
+            monitor_nl
+            monitor "u = [format $fmt $warg] ; eps = $e"
+            monitor_nl
+            trace::mess "warg = $warg ; e = $e"
+            set s_value [solver::lambert_w $warg $e]
+            if {[llength $s_value] == 0} {
+                set w_res {No solutions}
             } else {
-                monitor "e**x - x/u = 0\n"
-                monitor_nl
+                lassign $s_value s1 s2
+                set w_arg $warg
+                set w_res [format $fmt $s1]
+                trace::mess $w_res
+                if {[llength $s_value] > 1} {
+                    append w_res ", [format $fmt $s2]"
+                }
+                if {$warg > 0} {
+                    monitor "e**x + x - ln(u) = 0\n"
+                    monitor "Let s = x, then W($warg) = log(u) - s = e**s"
+                } else {
+                    monitor "e**x - x/u = 0\n"
+                    monitor_nl
 
-                monitor "There are two solutions s1 and s2 such that s1 > s2:\n"
-                monitor "\t W0([format $fmt $warg]) = [format $fmt $s1]\n"
-                monitor "\tW-1([format $fmt $warg]) = [format $fmt $s2]"
+                    monitor "There are two solutions s1 and s2 such that s1 > s2:\n"
+                    monitor "\t W0([format $fmt $warg]) = [format $fmt $s1]\n"
+                    monitor "\tW-1([format $fmt $warg]) = [format $fmt $s2]"
+                }
+                monitor_nl
             }
             monitor_nl
-        }
-        monitor_nl
-        monitor "therefore\n"
-        foreach w $s_value {
-            set ws [format $fmt $w]
-            monitor_nl
-            #set wsl "W([format %0.8f $warg])"
-            #monitor "$wsl = $w_res"
-            #monitor_nl
-            #monitor "So:\n"
-            if {$a eq {e}} {
-                if {$c == 0} {
-                    monitor "\tx = - $ws\n"
-                    set xw [expr "- $w"]
+            monitor "therefore\n"
+            foreach w $s_value {
+                set ws [format $fmt $w]
+                monitor_nl
+                if {$a eq {e}} {
+                    if {$c == 0} {
+                        monitor "\tx = - $ws\n"
+                        set xw [expr "- $w"]
+                    } else {
+                        monitor "\tx = $c/$b - $ws\n"
+                        set xw [expr "$c/double($b) - $w"]
+                    }
                 } else {
-                    monitor "\tx = $c/$b - $ws\n"
-                    set xw [expr "$c/double($b) - $w"]
+                    if {$c == 0} {
+                        monitor "\tx = - $d*$ws/log($a)\n"
+                        set xw [expr "- $d*$w/log($a)"]
+                    } else {
+                        monitor "\tx = $c/$b - $d*$ws/log($a)\n"
+                        set xw [expr "$c/double($b) - $d*$ws/log($a)"]
+                    }
                 }
-            } else {
-                if {$c == 0} {
-                    monitor "\tx = - $d*$ws/log($a)\n"
-                    set xw [expr "- $d*$w/log($a)"]
-                } else {
-                    monitor "\tx = $c/$b - $d*$w_res/log($a)\n"
-                    set xw [expr "$c/double($b) - $d*$w_res/log($a)"]
-                }
+                monitor "\t  = "
+                report_result $nr_solns $e $xw
             }
-            monitor "\t  = "
-            report_result $nr_solns $e $xw
-        }
-        monitor_nl
-        if {$ns == 3} {
-            monitor "\nThird (negative) solution uses W0 of positive argument:\n"
             monitor_nl
-            if {abs($b) == 1} {
+            if {$ns == 3} {
+                monitor "\nThird (negative) solution uses W0 of positive argument:\n"
+                monitor_nl
+                if {abs($b) == 1} {
+                    if {$d == 1} {
+                        set warg3 [expr {log($a)}]
+                        monitor "  u = ln($a) = [format $fmt $warg3]\n"
+                    } else {
+                        set warg3 [expr {log($a) / ($d)}]
+                        monitor "  u = ln($a)/$d = [format $fmt $warg3]\n"
+                    }
+                } else {
+                    if {$d == 1} {
+                        set warg3 [expr {log($a) / abs($b)}]
+                        monitor "  u = ln($a)/$d = [format $fmt $warg3]\n"
+                    } else {
+                        set warg3 [expr {log($a) / ($d * abs($b) ** (1.0/$d))}]
+                        monitor "  u = ln($a) / ($d * |$b|^(1/$d)) = [format $fmt $warg3]\n"
+                    }
+                }
+                set w3_list [solver::lambert_w $warg3 $e]
+                set w3 [lindex $w3_list 0]
+                monitor "  W0([format $fmt $warg3]) = [format $fmt $w3]\n"
+                set x3 [expr {- double($d) * $w3 / log($a)}]
+                monitor_nl
                 if {$d == 1} {
-                    set warg3 [expr {log($a)}]
-                    monitor "  u = ln($a) = [format $fmt $warg3]\n"
+                    monitor "  x = -W0/log($a) = "
                 } else {
-                    set warg3 [expr {log($a) / ($d)}]
-                    monitor "  u = ln($a)/$d = [format $fmt $warg3]\n"
+                    monitor "  x = -$d*W0/log($a) = "
                 }
-            } else {
-                if {$d == 1} {
-                    set warg3 [expr {log($a) / abs($b)}]
-                    monitor "  u = ln($a)/$d = [format $fmt $warg3]\n"
-                } else {
-                    set warg3 [expr {log($a) / ($d * abs($b) ** (1.0/$d))}]
-                    monitor "  u = ln($a) / ($d * |$b|^(1/$d)) = [format $fmt $warg3]\n"
-                }
+                report_result $nr_solns $e $x3
+                monitor_nl
             }
-            set w3_list [solver::lambert_w $warg3 $e]
-            set w3 [lindex $w3_list 0]
-            monitor "  W0([format $fmt $warg3]) = [format $fmt $w3]\n"
-            set x3 [expr {- double($d) * $w3 / log($a)}]
-            monitor_nl
-            if {$d == 1} {
-                monitor "  x = -W0/log($a) = "
-            } else {
-                monitor "  x = -$d*W0/log($a) = "
-            }
-            report_result $nr_solns $e $x3
-            monitor_nl
+            monitor "\n[string repeat = 60]\n"
         }
-        monitor "\n[string repeat = 60]\n"
+
         monitor_nl
         
         # Add copy button
