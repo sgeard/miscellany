@@ -1,6 +1,9 @@
 # miscellany
 A collection of unrelated small programs
 
+## lamb_w
+Solver for an exponential equation, written in tcl with tk gui and an android apk if you want to try it on your device (tested on Android 16).
+
 ## make_makefile.sh
 This is for building the covid-sim application on Linux:
 
