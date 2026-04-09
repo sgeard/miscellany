@@ -130,15 +130,23 @@ namespace eval solver {
 
     proc get_solution_frames {ns start end_stop} {
         variable g
+        variable params
         #trace::inout_off
         set nfound 0
         set start -10
+        set neg_d [expr {[array exists params] && $params(d) < 0}]
         set ys [$g $start]
         set sframes [list]
         set delta_min 0.1
         set delta $delta_min
         while {$nfound < $ns} {
             set end [+ $start $delta]
+            # For d<0, skip the singularity at x=0 to avoid a spurious sign change
+            if {$neg_d && $start < 0 && $end >= 0} {
+                set start $delta_min
+                set ys [$g $start]
+                continue
+            }
             set ye [$g $end]
             trace::mess "nfound = $nfound ; ns = $ns ; s = ($start,$ys) ; e = ($end,$ye)"
             if {$ys * $ye < 0} {
@@ -158,7 +166,7 @@ namespace eval solver {
             if {$start > $end_stop} {
                 break
             }
-            set delta [expr {$end > 10 ? 0.5*10**(int(log10($end))+1) : $delta_min}]
+            set delta $delta_min
             trace::mess "end = $end ; delta = $delta"
         }
         #trace::inout_on
@@ -274,6 +282,9 @@ namespace eval solver {
         if {$params(a) == 1 || $params(a) <= 0} {
             return 0
         }
+        if {$params(d) == 0} {
+            error "d = 0 is invalid: equation degenerates to a^x = c - b"
+        }
         foreach {k v} [array get params] {
             trace::mess "$k -> $v -> [expr $v]"
         }
@@ -284,6 +295,12 @@ namespace eval solver {
         }
 
         if {$params(c) == 0 && $params(b) < 0} {
+            if {$params(d) < 0} {
+                # For d<0, x^d has a singularity at x=0.  On x>0 the function is
+                # strictly monotone (f' > 0 for a>1, b<0, d<0), so there is
+                # exactly one positive-x root and none for x<0.
+                return 1
+            }
             if {$params(b) == -1} {
                 set e_lna  [expr {exp(1.0)*log($params(a))}]
                 set d_even [expr {$params(d)%2 == 0}]
@@ -339,18 +356,21 @@ namespace eval solver {
         # If ln(u) > 0
         if {$u > 0} {
             set_params {e} 1 [expr {log($u)}] 1 $e
+            set end_stop 50
 
-        } elseif {abs($u) < $e} {
+        } elseif {$u == 0.0} {
             return [list 0.0]
 
         } else {
             # W(u) = -s  where e**s+s/u = 0
             set_params {e} [expr {1/$u}] 0 1 $e
+            # W-1 root lies near s = ln(1/|u|); scan to 3x that value to be safe
+            set end_stop [expr {max(50.0, 3.0 * log(1.0 / abs($u)))}]
 
         }
         set ns [number_of_solns]
         trace::mess "ns = $ns"
-        set frames [get_solution_frames $ns -10 1000000]
+        set frames [get_solution_frames $ns -10 $end_stop]
         trace::mess "frames = $frames"
         set w_values [list]
         foreach f $frames {

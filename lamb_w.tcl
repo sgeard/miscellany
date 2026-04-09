@@ -26,9 +26,10 @@ namespace eval GUI {
         wm resizable . 0 1
         #set a 27 ; set b 3 ; set c 4 ; set d 1; set e 1.0e-6
         #set a 2 ; set b -9 ; set c 0 ; set d 1; set e 1.0e-6
-        set a 9 ; set b -1 ; set c 0 ; set d 6; set e 1.0e-6
+        #set a 9 ; set b -1 ; set c 0 ; set d 6; set e 1.0e-6
+        set a 9 ; set b -1 ; set c 7 ; set d 1; set e 1.0e-9
         set fr [ttk::frame .fr]
-        set lab [ttk::label $fr.lab -text {Solve: a**x + bx**d - c = 0} ]
+        set lab [ttk::label $fr.lab -text "Solve: a\u02E3 + bx\u1D48 - c = 0" ]
         pack $lab -fill x -expand 0 -side top -pady 3 -fill x
         
         set psfr [ttk::frame $fr.ps]
@@ -62,7 +63,15 @@ namespace eval GUI {
         pack $wfr -side top -fill x
         
         set tx [text $fr.tx -width 65 -height 50]
-        $tx tag configure correct_val -background yellow
+        set base_font [$tx cget -font]
+        set ascent [font metrics $base_font -ascent]
+        set base_size [font actual $base_font -size]
+        set script_size [expr {max(6, int($base_size * 0.75))}]
+        set script_font [font create {*}[font actual $base_font] -size $script_size]
+        $tx tag configure sup -offset [expr {$ascent / 2}] -font $script_font
+        $tx tag configure sub -offset [expr {-$ascent / 4}] -font $script_font
+        $tx tag configure correct_val -background yellow \
+            -font [font create {*}[font actual $base_font] -weight bold]
         $tx tag configure incorrect_val -background red
         pack $tx -fill both -expand 1 -side left
         pack $fr -fill both -expand 1
@@ -79,7 +88,9 @@ namespace eval GUI {
 
         $tx configure -state normal
         $tx insert end "Solving the exponential equation:\n\n"
-        $tx insert end "\t${av}**x "
+        $tx insert end "\t${av}"
+        $tx insert end "x" sup
+        $tx insert end " "
         if {$bv > 0} {
             if {$bv == 1} {
                 $tx insert end "+ x"
@@ -96,7 +107,8 @@ namespace eval GUI {
         if {$dv == 1} {
             $tx insert end " "
         } else {
-            $tx insert end "**$dv "
+            $tx insert end $dv sup
+            $tx insert end " "
         }
         if {$cv == 0} {
             $tx insert end " = 0"
@@ -120,10 +132,58 @@ namespace eval GUI {
         return $fr
     }
     
-    proc copy_to_clipboard {} {                                                                                                                                                    
-        variable tx                                                                                                                                                                
-        clipboard clear                                                                                                                                                            
-        clipboard append [$tx get 1.0 end]                                                                                                                                         
+    proc bold_unicode {s} {
+        # Replace ASCII digits with Mathematical Bold digits (U+1D7CE-U+1D7D7)
+        # Minus and decimal point have no bold Unicode equivalents
+        set result ""
+        foreach c [split $s ""] {
+            set cp [scan $c %c]
+            if {$cp >= 48 && $cp <= 57} {
+                append result [format %c [expr {0x1D7CE + $cp - 48}]]
+            } else {
+                append result $c
+            }
+        }
+        return $result
+    }
+
+    proc sub_unicode {s} {
+        string map {
+            0 \u2080  1 \u2081  2 \u2082  3 \u2083  4 \u2084
+            5 \u2085  6 \u2086  7 \u2087  8 \u2088  9 \u2089
+            - \u208B  + \u208A
+        } $s
+    }
+
+    proc sup_unicode {s} {
+        string map {
+            0 \u2070  1 \u00B9  2 \u00B2  3 \u00B3  4 \u2074
+            5 \u2075  6 \u2076  7 \u2077  8 \u2078  9 \u2079
+            - \u207B  + \u207A
+            x \u02E3  d \u1D48  s \u02E2  e \u1D49
+        } $s
+    }
+
+    proc copy_to_clipboard {} {
+        variable tx
+        set text [$tx get 1.0 end]
+        set n [string length $text]
+        set result ""
+        for {set i 0} {$i < $n} {incr i} {
+            set c [string index $text $i]
+            set tags [$tx tag names "1.0 + $i chars"]
+            if {"sup" in $tags} {
+                set c [sup_unicode $c]
+            } elseif {"sub" in $tags} {
+                set c [sub_unicode $c]
+            }
+            if {"correct_val" in $tags} {
+                set c [bold_unicode $c]
+            }
+            append result $c
+        }
+        clipboard clear
+        clipboard append $result
     }
     
     proc calculate {} {
@@ -142,24 +202,46 @@ namespace eval GUI {
         }
     }
     
-    proc output_equations {a b c d e warg} {
+    proc output_equations {a b c d e warg fmt} {
         if {$a eq {e}} {
-            if {$b == 1} {
-                monitor "x = $c - W(${a}**(${c}))\n"
-                monitor "  = $c - W([format %0.8f $warg])\n"
-            } else {
+            if {abs($b) == 1} {
+                set xc [expr {$c/$b}]
+                monitor "x = $xc - W(${a}**(${xc}))\n"
+                monitor "  = $xc - W([format $fmt $warg])\n"
+           } else {
                 monitor "x = $c/$b - W(${a}**(${c}/$b))\n"
-                monitor "  = $c/$b - W([format %0.8f $warg])\n"
+                monitor "  = $c/$b - W([format $fmt $warg])\n"
             }
         } else {
             if {$c == 0 && $b == -1} {
-                monitor "x = - $d*W(-log($a)/$d)/log($a)"
-                monitor_nl
-                monitor "  = - $d*W([format %0.8f $warg])/log($a)\n"
+                if {$d == 1} {
+                    monitor "x = - W(-log($a))/log($a)"
+                    monitor_nl
+                    monitor "  = - W([format $fmt $warg])/log($a)\n"
+                } else {
+                    set nd [expr {-$d}]
+                    if {$nd == 1} {
+                        set coeff {}
+                    } elseif {$nd == -1} {
+                        set coeff {- }
+                    } else {
+                        set coeff "${nd}*"
+                    }
+                    monitor "x = ${coeff}W(-log($a)/$d)/log($a)"
+                    monitor_nl
+                    monitor "  = ${coeff}W([format $fmt $warg])/log($a)\n"
+                }
             } else {
-                monitor "x = $c/$b - W(${a}**(${c})*log($a)/$b)/log($a)"
+                set xc [expr {$c/$b}]
+                if {$b == 1} {
+                    monitor "x = $xc - W(${a}**($xc)*log($a))/log($a)"
+                } elseif {$b == -1} {
+                    monitor "x = $xc - W(-${a}**($xc)*log($a))/log($a)"
+                } else {
+                    monitor "x = $xc - W(${a}**($xc)*log($a)/$b)/log($a)"
+                }
                 monitor_nl
-                monitor "  = $c/$b - W([format %0.8f $warg])/log($a)\n"
+                monitor "  = $xc - W([format $fmt $warg])/log($a)\n"
             }
         }
     }
@@ -180,14 +262,12 @@ namespace eval GUI {
             append w_res ", [format $fmt $s2]"
         }
 
-        if {$warg < 0} {
-            monitor "There are two solutions s1 and s2 such that s1 > s2:\n"
-            monitor "     W0([format $fmt $warg]) = [format $fmt $s1]\n"
-            monitor "    W-1([format $fmt $warg]) = [format $fmt $s2]"
+        if {$warg < 0 && [llength $s_value] > 1} {
+            monitor "     W__0([format $fmt $warg]) = [format $fmt $s1]\n"
+            monitor "    W__-1([format $fmt $warg]) = [format $fmt $s2]\n"
         }
         monitor_nl
 
-        monitor_nl
         monitor "therefore\n"
         monitor_nl
         foreach w $s_value {
@@ -196,20 +276,38 @@ namespace eval GUI {
             if {$a eq {e}} {
                 if {$c == 0} {
                     monitor "    x = - $ws"
-                    set xw [expr "- $w"]
+                    set xw [expr {-$w}]
                 } else {
-                    monitor "    x = $c/$b - $ws"
-                    set xw [expr "$c/double($b) - $w"]
+                    set op [expr {$w >= 0 ? {- } : {+ }}]
+                    set abs_ws [format $fmt [expr {abs($w)}]]
+                    monitor "    x = $c/$b ${op}${abs_ws}"
+                    set xw [expr {$c/double($b) - $w}]
                 }
             } else {
-                if {$c == 0} {
-                    monitor "    x = - $d*$ws/log($a)"
-                    set xw [expr "- $d*$w/log($a)"]
+                # Compute the term -d*W/log(a) and derive sign to avoid double-negatives
+                set term [expr {-$d * $w / log($a)}]
+                set abs_ws [format $fmt [expr {abs($w)}]]
+                set op [expr {$term >= 0 ? {+ } : {- }}]
+                if {abs($d) == 1} {
+                    set w_part "${abs_ws}/log($a)"
                 } else {
-                    monitor "    x = $c/$b - $d*$ws/log($a) "
-                    set xw [expr "$c/double($b) - $d*$ws/log($a)"]
+                    set w_part "[expr {abs($d)}]*${abs_ws}/log($a)"
+                }
+                if {$c == 0} {
+                    monitor "    x = [expr {$term >= 0 ? {} : {- }}]${w_part}"
+                    set xw $term
+                } else {
+                    if {abs($b) == 1} {
+                        set xc [expr {$c/double($b)}]
+                        monitor "    x = $xc ${op}${w_part} "
+                    } else {
+                        monitor "    x = $c/$b ${op}${w_part} "
+                    }
+                    set xw [expr {$c/double($b) + $term}]
                 }
             }
+            solver::set_params $a $b $c $d $e
+            lassign [solver::n-r-from $xw $e] xw
             monitor "  = "
             report_result $nr_solns $e $xw
         }
@@ -238,13 +336,15 @@ namespace eval GUI {
         }
         set w3_list [solver::lambert_w $warg3 $e]
         set w3 [lindex $w3_list 0]
-        monitor "    W0([format $fmt $warg3]) = [format $fmt $w3]\n"
+        monitor "    W__0([format $fmt $warg3]) = [format $fmt $w3]\n"
         set x3 [expr {- double($d) * $w3 / log($a)}]
+        solver::set_params $a $b $c $d $e
+        lassign [solver::n-r-from $x3 $e] x3
         monitor_nl
         if {$d == 1} {
-            monitor "    x = -W0/log($a) = "
+            monitor "    x = -W__0/log($a) = "
         } else {
-            monitor "    x = -$d*W0/log($a) = "
+            monitor "    x = -$d*W__0/log($a) = "
         }
         report_result $nr_solns $e $x3
 
@@ -280,6 +380,11 @@ namespace eval GUI {
                 error "$an is not numeric"
             }
         }
+        if {$d == 0} {
+            monitor "d = 0 is not valid: the equation degenerates to a\u02e3 = c - b,\n"
+            monitor "which is solved directly by x = log(c - b) / log(a).\n"
+            return
+        }
 
         set_displayed_parameters $a $b $c $d $e
         solver::set_params $a $b $c $d $e
@@ -300,8 +405,8 @@ namespace eval GUI {
                 monitor "\tHere d = $d,  e\u00b7ln($a) \u2248 [format %.4f $e_lna]\n"
             } else {
                 set xt [solver::get_tangent_point]
-                monitor "No solutions: a^x lies entirely above b\u00b7x^d + c"
-                monitor " (curves are tangent at x \u2248 [format %.4f $xt])\n"
+                monitor "No solutions: a^x lies entirely above b\u00b7x^d + c\n"
+                monitor "    (curves are tangent at x \u2248 [format %.4f $xt])\n"
             }
             monitor "\n[string repeat = 60]\n"
             add_copy_button
@@ -309,7 +414,7 @@ namespace eval GUI {
         }
 
         if {$ns >= 1} {
-            set sframes [solver::get_solution_frames $ns -10 1000000]
+            set sframes [solver::get_solution_frames $ns -10 200]
             set str    "Numerically using Newton-Raphson\n"
             append str "--------------------------------\n"
             append str "\n[llength $sframes] intervals found \{"
@@ -352,7 +457,7 @@ namespace eval GUI {
             if {$c == 0 && $b == -1} {
                 set warg [expr {-log($a)/$d}]
             } elseif {$d == 1} {
-                set warg [* [** $a $c] [/ [log $a] $b]]
+                set warg [expr {($a ** ($c / double($b))) * log($a) / $b}]
             } else {
                 set has_lw 0
             }
@@ -377,7 +482,7 @@ namespace eval GUI {
         monitor_nl
         monitor "Rearrange:\n"
         monitor_nl
-        output_equations $a $b $c $d $e $warg
+        output_equations $a $b $c $d $e $warg $fmt
 
         monitor_nl
         trace::mess {==========================================================}
@@ -387,12 +492,18 @@ namespace eval GUI {
         monitor "    if u > 0, solve for s: e**s + s - ln(u) = 0  then W(u)=e**s\n"
         monitor_nl
         monitor "In this case u = [format $fmt $warg]"
-        if {$warg < -exp(-1.0)} {
+         if {$warg < -exp(-1.0)} {
             monitor " is < -1/e so there are no solutions\n"
         } else {
-            monitor_nl
+            set actual_ns $ns
+            if {$actual_ns == 1} {
+                monitor " so there is 1 solution\n"
+           } else {
+                monitor " so there are $actual_ns solutions:\n"
+                monitor_nl
+            }
         }
-        monitor_nl
+
         if {!($has_neg_soln && $ns == 1)} {
             calculate_lambert_values $a $b $c $d $e $warg $nr_solns $fmt
         }
@@ -441,10 +552,67 @@ namespace eval GUI {
         monitor_nl
     }
     
+    proc with_sup {s} {
+        # Return a list of {text tag} pairs; exponents get tag "sup"
+        set result {}
+        set pos 0
+        set len [string length $s]
+        while {$pos < $len} {
+            set fsup [string first {**} $s $pos]
+            set fsub [string first {__} $s $pos]
+            if {$fsup < 0} { set fsup $len }
+            if {$fsub < 0} { set fsub $len }
+            if {$fsup <= $fsub} {
+                set found $fsup ; set tag sup
+            } else {
+                set found $fsub ; set tag sub
+            }
+            if {$found >= $len} {
+                lappend result [list [string range $s $pos end] {}]
+                set pos $len
+            } else {
+                if {$found > $pos} {
+                    lappend result [list [string range $s $pos [expr {$found - 1}]] {}]
+                }
+                set pos [expr {$found + 2}]
+                set exp {}
+                if {$pos < $len && [string index $s $pos] eq {(}} {
+                    incr pos
+                    while {$pos < $len && [string index $s $pos] ne {)}} {
+                        append exp [string index $s $pos]
+                        incr pos
+                    }
+                    if {$pos < $len} { incr pos }
+                } else {
+                    while {$pos < $len} {
+                        set c [string index $s $pos]
+                        if {[string match {[-0-9a-zA-Z+]} $c]} {
+                            append exp $c
+                            incr pos
+                        } else {
+                            break
+                        }
+                    }
+                }
+                if {$exp ne {}} {
+                    lappend result [list $exp $tag]
+                }
+            }
+        }
+        return $result
+    }
+
     proc monitor {line {t {}}} {
         variable tx
         $tx configure -state normal
-        $tx insert end "${line}" $t
+        foreach seg [with_sup $line] {
+            lassign $seg text seg_tag
+            if {$seg_tag ne {}} {
+                $tx insert end $text [if {$t ne {}} {list $seg_tag $t} else {list $seg_tag}]
+            } else {
+                $tx insert end $text $t
+            }
+        }
         $tx configure -state disabled
     }
    
